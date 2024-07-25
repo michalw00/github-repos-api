@@ -15,6 +15,10 @@ public class GitHubService {
 		this.webClient = WebClient.create("https://api.github.com");
 	}
 
+	public GitHubService(WebClient webClientBuilder, String baseUrl) {
+		this.webClient = WebClient.create(baseUrl);
+	}
+
 	public Mono<GitHubUserRepositories> getUserRepos(String username) {
 		return webClient.get()
 				.uri("/users/{username}/repos", username)
@@ -22,20 +26,23 @@ public class GitHubService {
 				.retrieve()
 				.bodyToFlux(GitHubRepository.class)
 				.filter(repo -> !repo.isFork())
-				.flatMap(repo -> {
-					return webClient.get()
-							.uri("/repos/{owner}/{repo}/branches", repo.getOwner().getLogin(), repo.getName())
-							.retrieve()
-							.bodyToFlux(GitHubRepository.Branch.class)
-							.collectList()
-							.map(branches -> {
-								repo.setBranches(branches);
-								return repo;
-							});
-				})
+				.flatMap(repo -> fetchBranches(repo))
 				.collectList()
 				.map(GitHubUserRepositories::new)
 				.onErrorResume(WebClientResponseException.NotFound.class, e ->
 						Mono.error(new UserNotFoundException("User not found", e)));
+	}
+
+	private Mono<GitHubRepository> fetchBranches(GitHubRepository repo) {
+		return webClient.get()
+				.uri("/repos/{owner}/{repo}/branches", repo.getOwner().getLogin(), repo.getName())
+				.retrieve()
+				.bodyToFlux(GitHubRepository.Branch.class)
+				.collectList()
+				.map(branches -> {
+					repo.setBranches(branches);
+					return repo;
+				});
+
 	}
 }
